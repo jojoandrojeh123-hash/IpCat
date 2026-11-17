@@ -1,0 +1,71 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+      - run: CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -o mcwatch-server-linux-${{ matrix.arch }} ./cmd/server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcwatch-server-linux-${{ matrix.arch }}
+          path: mcwatch-server-linux-${{ matrix.arch }}
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+      - run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev pkg-config
+      - run: go test -race ./...
+      - run: go vet ./...
+
+  client:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+            output: client-linux
+          - os: windows-latest
+            name: windows
+            output: client-windows.exe
+          - os: macos-latest
+            name: macos
+            output: client-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev pkg-config
+      - if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+      - if: matrix.name == 'windows'
+        shell: bash
+        run: go build -ldflags "-H=windowsgui" -o ${{ matrix.output }} ./cmd/client
+      - if: matrix.name != 'windows'
+        run: go build -o ${{ matrix.output }} ./cmd/client
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcwatch-client-${{ matrix.name }}
+          path: ${{ matrix.output }}
